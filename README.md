@@ -32,5 +32,5 @@ The first component, pictured below left shows an empirical re-ordering of our 3
 
 Lastly, we also subjected our chord data to a HCA per suggestion of one of our reviewers. The dendrogram is pictured below.
 
-![HCA Dendrogram](img/Figures/Figure_4.jpeg)
+![HCA Dendrogram](img/Figures/Figure4.jpeg)
 
