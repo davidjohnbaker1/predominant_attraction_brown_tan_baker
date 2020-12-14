@@ -1,0 +1,469 @@
+---
+title: "old code 2"
+author: "David John Baker"
+date: "14/12/2020"
+output: html_document
+---
+
+## Supplmentary Analyses
+
+```{r}
+collapsed_model %>%
+  group_by(chord) %>%
+  summarise(mean_chord_ratings = mean(mean_rating)) -> avg_chord_ratings
+  
+
+chord_features %>%
+  dplyr::select(parncut_roughness:number_tendency_tones4_6, chord) %>%
+  left_join(avg_chord_ratings) -> feature_model_data 
+
+
+# FEATURES 
+feature_model2 <- lm(mean_chord_ratings ~  scale(lerdhal_tension) + 
+                                      scale(parncut_roughness) + scale(semitone_voice_move) + 
+                                        as.character(rootmotion) + scale(number_tendency_tones4_6)
+                       , data = feature_model_data)
+
+
+summary(feature_model2)
+
+plot(chord_cat_rm)
+plot(musical_training_rm)
+plot(feature_model2)
+
+broom::tidy(feature_model2) %>%
+  filter(term != "(Intercept)") %>%
+  # fix variable names 
+  mutate(term = case_when(
+    term == "scale(lerdhal_tension)" ~ "Chord Distance",
+    term == "scale(parncut_roughness)" ~ "Chord Roughness",
+    term == "scale(semitone_voice_move)" ~ "Semitonal Voice Leading",
+    term == "scale(number_tendency_tones4_6)" ~ "Scale Degree 4,#4,b6,6",
+    term == "as.character(rootmotion)1" ~ "Root Motion",
+  )) %>%
+  mutate(p.value = case_when(
+    p.value <.05 ~ "*",
+    TRUE ~ " "
+  )) %>%
+  ggplot(aes(x = reorder(term,estimate), y = estimate, label = p.value)) +
+  geom_point() +
+  geom_text(nudge_x = .25) +
+  geom_linerange(aes(ymin = estimate - std.error, ymax = estimate + std.error)) +
+  theme_minimal() +
+  coord_flip() +
+  labs(title = "Chord Feature Model", y = "Estimate",x = "Feature", subtitle = "Standarized Betas",caption = "Bars Indicate Standard Errors") -> feature_plot2
+
+
+
+
+
+```
+
+
+### Supplmentary Analysis 
+
+* Included here to show parallels between mixed effects and non. 
+
+```{r, echo=FALSE}
+# Select Variables that will be used
+# set experimental group to ordered factor 
+model_data <- df %>%
+  select(rating, 
+         chord,
+         chord_family,
+         lerdhal_tension,
+         parncut_roughness,
+         semitone_voice_move, 
+         rootmotion,
+         number_tendency_tones4_6,
+         participant,
+         block, 
+         i_have_had_formal_training_in_music_theory_for_years, 
+         f3_musical_training,experimental_group) %>%
+  mutate(experimental_group = factor(experimental_group, c("prolific", "freshman","upperclass"))) %>%
+  mutate(chord_family_f = factor("non_pd","bridge","common_pd","chromatic"))
+  
+```
+
+### Null Model 
+
+```{r}
+# Run Null Model 
+null_model <- lmer(rating ~ (1|participant) + (1|block), data = model_data)
+null_summary <- summary(null_model)
+null_summary
+
+r.squaredGLMM(null_model)
+```
+
+Prior to running any models with fixed effects, we first ran a null model in order to establish how much variation was due to participant effects and to additionally confirm no block effects in the experimental design.  Results from our null model established that 20% of the variation in the data could be accounted for solely to variation in response of our participants using $R^2_{conditional}$. Less than .01% of the variation in the model was due to any effect of block. We dropped the block variable from subsequent models.
+
+We then ran three linear mixed effects models corresponding to our three above hypotheses.
+All model summary statistics can be found in Table Y and describe the model fitting procedure below.
+
+### Effect of Chord Type
+
+In order to model data from our first hypothesis, we specified chord category as a fixed effect and participant as a random intercept, allowing slopes to vary within participant for chord category. The coefficient estimates for each chord category are plotted in Figure Model One. 
+
+```{r, echo = FALSE}
+# FIT MODEL 
+# Chord with Random Intercept 
+chord_category_model <- lmer(rating ~ chord_family + (1+chord_family|participant), data = model_data)
+(summary_chord_category_model <- summary(chord_category_model))
+summary_chord_category_model$coefficients
+
+r.squaredGLMM(null_model)
+r.squaredGLMM(chord_category_model)
+
+anova(null_model, chord_category_model)
+
+ccm_effects <- ranef(chord_category_model)
+
+ranef(chord_category_model)
+fixef(chord_category_model)
+```
+
+* Create Model 1 Coef Figure
+
+```{r}
+## Figure -- Model 1 
+std <- function(x) sd(x)/sqrt(length(x))
+
+# Chord Random Slopes 
+#(.54+.0002+.38+.51)/(.54+.0002+.38+.51+1.69)
+means <- tibble(means = c(4.39518,4.39518+.41810,4.39518+.52897,4.39518+.03238),
+                std_errors = c(.10389948,.11692142,.10447082,.06708085),
+                labz = c("Bridge Chords","Chromatic Predominant","Diatonic Predominant","Non Predominant"))
+
+means %>%
+  mutate(labz = factor(labz, levels = c("Bridge Chords","Chromatic Predominant","Diatonic Predominant","Non Predominant"))) %>%
+  ggplot(aes(y = means, x = labz)) +
+  geom_point(stat = "identity") +
+  geom_errorbar(aes(ymin = means - std_errors, ymax = means+std_errors)) +
+  labs(x = "Chord Category", y = "Model Coefficient", title = "Chord Category Model") +
+  coord_flip(ylim = c(1,7)) +
+  theme_minimal() -> chord_family_model_plot_1
+
+chord_family_model_plot_1
+
+ggsave(filename = "img/Figures/Figure_Model_One.png", chord_family_model_plot_1, height = 6, width = 9, units = "in", dpi = 300)
+```
+
+### Effect of Music Theory Training
+
+To model data from our second hypothesis, we fit a second linear mixed effects model with attraction as the dependent variable and years of training in music theory as measured by question 38 on the Goldsmiths Musical Sophistication Index as a fixed effect. Here we specified chord family as a random intercept, and allowed  music theory training to vary as a random slope with the effect of participant modeled as a random intercept. We present parameter estimates for both first and third order polynomial models in Table Y and visualize both models in Figure Model Two.
+
+
+```{r}
+ 
+# EDA
+
+model_data %>%
+  ggplot(aes(x = i_have_had_formal_training_in_music_theory_for_years,
+             y = rating,
+             color = chord_family)) +
+  labs(title = "Chord Rating as Funtion of Music Theory Training",
+       subtitle = "LOESS Function", x = "Theory Training", y = "Rating",
+       color = "Chord Category") +
+  coord_cartesian(xlim = c(1,7)) +
+  scale_x_continuous(breaks = seq(1,7,1), labels = vexta) +
+  scale_color_manual(labels = c("Non PDs","Chromatic PDs","Diatonic PDs","Bridge Chords"), 
+                      values = c("red","black","blue","green")) +
+  theme_minimal() +
+  geom_smooth() -> eda_loess_mt_category
+
+eda_loess_mt_category
+
+ggsave(filename = "img/Figures/Figure_LOESS_Function.png",
+       height = 6, width = 9, units = "in", dpi = 300,
+       plot = eda_loess_mt_category)
+
+```
+
+* Fit Model 2
+
+```{r}
+# Chord with Random Intercept 
+library(optimx)
+options(scipen = 999)
+
+mt_model_p1 <- lmer(rating ~ i_have_had_formal_training_in_music_theory_for_years + (1+i_have_had_formal_training_in_music_theory_for_years|chord_family) , data= model_data, control = lmerControl(
+                           optimizer ='optimx', optCtrl=list(method='nlminb')))
+
+# mt_model_p3 <- lmer(rating ~ poly(i_have_had_formal_training_in_music_theory_for_years,3) + (1+i_have_had_formal_training_in_music_theory_for_years|chord_family), data= model_data, control = lmerControl(
+#                            optimizer ='optimx', optCtrl=list(method='nlminb')))
+
+
+summary(mt_model_p1)
+
+library(Hmisc)
+library(forcats)
+
+model_data %>%
+  mutate(experimental_group = as.factor(str_to_title(experimental_group))) %>%
+  select(experimental_group, i_have_had_formal_training_in_music_theory_for_years, participant) %>%
+  distinct() %>%
+  ggplot(aes(
+    x = fct_reorder(experimental_group, i_have_had_formal_training_in_music_theory_for_years), 
+    y = i_have_had_formal_training_in_music_theory_for_years)) +
+  geom_jitter() +
+  scale_y_continuous(breaks = seq(1,7,1), 
+                     labels = vexta) +
+  stat_summary(fun = "mean", colour = "red", size = 2, geom = "point") +
+  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = 1) +
+  coord_flip() +
+  labs(title = "Distribution of Music Theory Training",
+       subtitle = "Question 38 from Goldsmiths Musical Sophistication Index",
+       x = "Participant Group",
+       y = "I have had formal training in music theory for __ years") +
+  theme_minimal() -> descriptive_theory_plot
+
+descriptive_theory_plot
+
+# show cubic is better than linear
+mm_plot_1 <- model_data %>% 
+  ggplot(aes(x = i_have_had_formal_training_in_music_theory_for_years, 
+             y = rating, 
+             color = chord_family)) +
+      theme_minimal() +
+      coord_cartesian(ylim = c(3,6.5)) +
+  scale_x_continuous(breaks = seq(1,7,1), 
+                     labels = vexta) +
+    scale_color_manual(labels = c("Non Predominant","Chromatic Predominant","Diantonic Predominant","Bridge Chords"), 
+                      values = c("red","black","blue","green")) +
+      geom_line(data = cbind(model_data, pred = predict(mt_model_p1)), aes(y = pred), size = 1) +
+#  annotate("rect", xmin = 1, xmax = 3, ymin = 4, ymax = 5.25, alpha = .2, fill = "blue") +
+#  annotate("rect", xmin = 3, xmax = 7, ymin = 4, ymax = 5.25, alpha = .2, fill = "red") +
+#  annotate("text", x = 1.75, y = 5.45, label = "Freshman Year") +
+#  annotate("text", x = 3.5, y = 5.45, label = "Upperclass") +
+  labs(title = "Mixed Effects Model Predictions",
+       x = "I have had formal training in music theory for __ years",
+       y = "Rating", color = "Chord Category")
+
+# mm_plot_3 <- model_data %>% 
+#   ggplot(aes(x = i_have_had_formal_training_in_music_theory_for_years, 
+#              y = rating, 
+#              color = chord_family)) +
+#       theme_minimal() +
+#       coord_cartesian(ylim = c(3,6.5)) +
+#   scale_x_continuous(breaks = seq(1,7,1), 
+#                      labels = vexta) +
+#     scale_color_manual(labels = c("Non PDs","Chromatic PDs","Diantonic PDs","Bridge Chords"), 
+#                       values = c("red","black","blue","green")) +
+#       geom_line(data = cbind(model_data, pred = predict(mt_model_p3)), aes(y = pred), size = 1) +
+#   annotate("rect", xmin = 1, xmax = 3, ymin = 4, ymax = 5.25, alpha = .2, fill = "blue") +
+#   annotate("rect", xmin = 3, xmax = 7, ymin = 4, ymax = 5.25, alpha = .2, fill = "red") +
+#   annotate("text", x = 1.75, y = 5.45, label = "Freshman Year") +
+#   annotate("text", x = 3.5, y = 5.45, label = "Upperclass") +
+#   labs(title = "Model 2",
+#        x = "I have had formal training in music theory for __ years",
+#        y = "Rating",
+#        color = "Chord Category")
+
+
+## EDA 
+## Consider curve fitting since dip at three
+
+mm_plot_1 -> mt_model_plot_1
+#mm_plot_3 -> mt_model_plot_3
+
+
+#ggsave(filename = "img/Figures/Figure_Model_Two_Linear.png", 
+#       height = 6, width = 9, units = "in", dpi = 300, 
+#       mt_model_plot_1)
+
+descriptive_theory_plot / mt_model_plot_1 -> combined1
+
+combined1
+
+ggsave(filename = "img/Figures/Model_2_double.png",
+       height = 6, width = 9, units = "in", dpi = 300, combined1)
+
+#ggsave(filename = "img/Figures/Figure_Model_Two_Poly.png", 
+#       height = 6, width = 9, units = "in", dpi = 300, 
+#       mt_model_plot_3)
+```
+
+* Model Fits 
+
+```{r}
+# Model Fits
+
+r.squaredGLMM(mt_model_p1)
+r.squaredGLMM(mt_model_p3)
+
+summary(mt_model_p1)
+summary(mt_model_p3)
+
+fixef(mt_model_p1)
+fixef(mt_model_p3)
+
+anova( mt_model_p1, chord_category_model)
+anova( mt_model_p3, chord_category_model)
+anova( mt_model_p1, mt_model_p3)
+```
+
+### Chord Feature Analysis 
+
+Finally, to model data investigating the extent that features from the chords area predictive of attraction ratings we fit a full model to our data that incorporated the five features as well as musical theory training. Here we used Lerdhal tension, Parncutt roughness, semitone voice movement, root motion, , number of tendence tones, and music theory training as fixed effects with participant modeled as a random effect. The coefficient estimates for each chord category are plotted in Figure Model Three and reflect standardized beta coeffecients.
+
+NOTE HERE STANDARDIZED
+
+
+
+
+
+Future Work 
+
+* Specifically disentangle these since voice leading and other features (harrison) better predict
+* Expand what sample space would be and have more ratings per individual
+* Clearly features of chords are linking and this is proof of concept. 
+
+
+
+### Summary Information
+
+```{r}
+sjPlot::tab_model(null_model, chord_category_model, mt_model_p1, mt_model_p3, all_musical_indv_theory_model, title = "Regression Table",show.p = FALSE,show.ngroups = FALSE)
+```
+
+## ANALYSIS A 
+
+
+
+## Discussion Notes
+
+1. Ran three analyses to investigate what predicts ratings
+  1. chord type
+  2. musical training moderation
+  3. feature based analysis
+2. Chord Type Major Points -- via Model One
+  1. FIGURE FOO
+  2. See that when modeled just with category there are differences as music theory pedagogy would predict
+  3. Unlike lit review, found common PD parameter to be the highest, with chromatic second.
+  4. This analysis provided evidence of sensitivity to PD function for all listeners
+  5. Knowing chord type provided significantly better model fit than just null model (8% conditional R2)
+3. Musician Moderation Points -- via Model Two 
+  1. We hypothesized that more training in music theory would be more sensitive to PD nature of chords
+  2. Modeled data using mixed effects models seen in FIGURE PANEL 
+  3. As can be seen from panel, there is divergence in rating after three.
+  4. If modeled linearly, both chromatic and common PD go up.
+  5. As theory question captured participants across all three recruitment categories can explore model fit
+  6. If modeled with more parameters, descriptively see trend where music theory training starts and plateaus
+  7. This suggests that with music training, clearly hear these chords differently.
+4. Feature Analysis 
+  1. Chord family used from Table 5 is derived from top down music theoretic features
+  2. See link in Model 1 that they are rated differently
+  3. See in Model 2 that musical training leads to higher attraction ratings post theory education
+  4. Ended with exploratory analysis seeing if features of chords predict better than just category
+  5. We accomplished this by fitting fully specified model.
+    - all five features
+    - musical training
+  6. Present model output in table X
+  7. Importantly plot triptychs of different levels of training.
+5. Tying it all together
+  1. This is first study to just look at PD
+  2. Established what theory pedagogy would predict
+  3. Shown listening gets more intense 
+
+Effect of chord type. Data were submitted to a repeated-measures ANCOVA with one within-subject factor: Chord Type (4: chromatic pre-dominants, diatonic pre-dominants, bridge chords, and non pre-dominants), one between-subjects factor: Participant Group (Prolific, freshman music majors, and junior/senior music majors), and three covariates: Musical Training (Gold-MSI, Factor 3, subscore), formal Music Theory Training (Question 35 on the Gold-MSI that asked for number of years), and Genre Preference (Gold-MSI forced-choice question that asked participants to select whether they listen most to pop/rock, classical, or jazz).
+
+1 There was a significant effect for Chord Type (F(2.93, 155.30 = 4.44, p = .019, ηp2 = 0.061). Post hoc pairwise comparisons of mean attraction ratings for Chord Type revealed that chromatic pre-dominants (M = 4.81, SE = 0.11) were rated significantly higher than non pre-dominants (M = 4.43, SE = 0.11) and bridge chords (M = 4.40, SE = 0.10), but there was no significant difference between ratings for chromatic pre-dominants and diatonic pre-dominants (M = 4.92, SE = 0.10); see Figure 4. Diatonic pre-dominants were rated significantly higher than both non pre-dominants and bridge chords. There was no significant difference between ratings for non pre-dominants and bridge chords. (All pairwise post hoc tests were adjusted with Bonferroni’s correction). 
+
+We modeled our data following our three hypotheses listed above using stepwise mixed effects.
+
+First, we ran a model to investigate effect of chord type.
+
+* FIGURE shows intercepts of Chord Type with participant as random effect.
+
+Seeing as predicted musical training would moderate, then added that.
+
+* Let musical training have random slope and interecept 
+* Random intercept will show if strength of ratings changes with training
+* Random slope on chord type will show idea of interaction effect, magnitude of slopes
+
+Lastly we investigated degree that features predicted using maximally fit model.
+
+* Fit maximal model 
+* Add in Parncutt to increase model 
+* Other variables are not as great for linear model 
+
+## Discussion Points
+
+We fit three models to investigate hypothesis.
+
+First model says that is effect of chord family.
+Not only is there an overall global effect apparent regardless of training.
+See from FIGURE that ordering of magnitude is related to what predicted.
+Chord type is descriptively imposed category, will eventually want to know if that breaks down.
+
+Having established existance that different predom chords effect with different salience.
+Next question is to figure out if musical training incoporated in model makes better.
+
+With participant still as random effect, now have random slope and intercept of musical training.
+Random intercept of musical training would indicate here that each group has different baseline for each chord family.
+Within each group intercept, not only will baseline ratings change but increase in category leads to change in mangnitude of the slope.
+So presumably people with higher training will respond more to more pd-y chords.
+
+FIGURE Shows that quite clearly.
+
+Reflected in model with classic idea of interaction effect seen in slopes across groups (MT).
+
+From this can also show that there is cross sectional evidence that training is moderating this relationship.
+
+Finally, knowing that see effects of large categories from model 1 and effect of MT, lastly want to model chords as if they were not from pre-destined category but rather that feature of chord lead to it's degree of predominant ness.
+
+If this is the case, features themsleves might lead.
+Particularly we do this with the five features. 
+
+(and if this relationship exists, can you predict chord category from features?)
+
+Analysis from above suggests that this might be possible.
+Explain what the model output is.
+Commentary that features picked here might be too blunt to be captured at level of granularity.
+
+For example, variance on Lerdhal chord distance and if it has scale degree 2 only has few categories.
+In attempt to control for stuff with shephard tone, made harder to account for voice leading. 
+In modeling, was variables that had potential for explanation that did explain.
+From power point of view, harder with smaller categories.
+
+Future experiment here would be to do it again with these effects established.
+And then use something like voice-leading from PH to explore stimuli space.
+
+As for larger level implications major points are ...
+
+1. first study to exlusvily focus on the predominant
+2. In line with pedagogical and theoretical ideas, more pd-y chords get higher attraction ratings
+3. These relationships become more evident as musical training is considered.
+4. From pedagotical POV, can see that X has most predictive ability in maximal model.
+5. Almost imposible to disentangle causal nature of this relationship
+6. But stage is set to move to next level of experiment with clear baselines established.
+
+
+
+
+
+```{r}
+# df %>%
+#   select(participant, rating, chord_id) %>%
+#   filter(participant < 3) %>%
+#   ggplot(aes(x = chord_id, y = rating, color = chord_id)) +
+#   geom_point() +
+#   facet_wrap(~participant)
+  
+```
+
+
+## Results
+
+Data between the two blocks were consistent, as there was no significant effect of phase between ratings in Block 1 versus ratings in Block 2 (two-factor ANOVA with repeated measures on both factors, F(1, 58) = 0.55, p = .460), and thus the two ratings for each chord were averaged together; this average rating for each chord was used in the analyses below.
+
+Effect of chord type. Data were submitted to a repeated-measures ANCOVA with one within-subject factor: Chord Type (4: chromatic pre-dominants, diatonic pre-dominants, bridge chords, and non pre-dominants), one between-subjects factor: Participant Group (Prolific, freshman music majors, and junior/senior music majors), and three covariates: Musical Training (Gold-MSI, Factor 3, subscore), formal Music Theory Training (Question 35 on the Gold-MSI that asked for number of years), and Genre Preference (Gold-MSI forced-choice question that asked participants to select whether they listen most to pop/rock, classical, or jazz).1 There was a significant effect for Chord Type (F(2.93, 155.30 = 4.44, p = .019, ηp2 = 0.061). Post hoc pairwise comparisons of mean attraction ratings for Chord Type revealed that chromatic pre-dominants (M = 4.81, SE = 0.11) were rated significantly higher than non pre-dominants (M = 4.43, SE = 0.11) and bridge chords (M = 4.40, SE = 0.10), but there was no significant difference between ratings for chromatic pre-dominants and diatonic pre-dominants (M = 4.92, SE = 0.10); see Figure 4. Diatonic pre-dominants were rated significantly higher than both non pre-dominants and bridge chords. There was no significant difference between ratings for non pre-dominants and bridge chords. (All pairwise post hoc tests were adjusted with Bonferroni’s correction). 
+While there were no between-subjects effects of Participant Group (F(2, 53) = 0.09, p = .917, ηp2 = 0.003), Musical Training (F(1, 53) = 0.50, p = .481, ηp2 = 0.009), Musical Theory Training (F(1, 53) = 0.16, p = .693, ηp2 = 0.003), or Genre Preference (F(1, 53) = 0.91, p = .346, ηp2 = 0.017), there were significant interactions between some of these factors and Chord Type. Figure 5a illustrates a significant interaction between Chord Type and Participant Group (F(5.86, 155.30 = 6.20, p < .001, ηp2 = 0.190). Figure 5b illustrates a significant interaction between Chord Type and Musical Training (F(2.93, 155.30 = 2.80, p = .043, ηp2 = 0.050): as musical training increases, ratings for non pre-dominants stay flat, ratings for bridge chords go down, ratings for diatonic pre-dominants increase slightly, and ratings for chromatic pre-dominants increase the most. There was no significant interaction found between Chord Type and Genre Preference (F(2.93, 155.30 = 0.78, p = .507, ηp2 = 0.014), and there was no significant interaction found between Chord Type and Music Theory Training (F(2.93, 155.30 = 0.20, p = .894, ηp2 = 0.004). 
+Factors contributing to attraction ratings. To investigate particular factors that contribute to the perception of attraction, we submitted data to three multiple linear regressions with mean attraction ratings from each of the three Participant groups as the dependent factor. Described above (see Table 3), the following factors were hypothesized to contribute to higher attraction ratings: Chord distance (based on Lerdahl, 2001), Chord roughness (based on Parncutt, 1989), Semitones (number of scale-degrees in the chord that move by semitone to a scale-degree in V), Root motion (whether or not the chord contains ^2 or b^2 as the root), Scale degrees (the number of ^4, #^4, b^6, and ^6 in the chord). 
+Using the enter method it was found that the factors above explain a significant amount of the variance in the attraction ratings by junior/senior music majors (R2 = .65, R2Adjusted = .57, F(5, 25) = 9.08, p < .001).2  Shown in Table 5, the analysis suggests that Semitones (β = .481, p = .001) and the presence of pre-dominant Scale degrees (β = .637, p = .001) significantly predicted higher attraction ratings, but Root motion from b^2 or ^2 to ^5 did not predict higher attraction ratings (β = .141, p = .340), and both Chord roughness and Chord distance had a negative but significant impact on attraction ratings (β = -.313, p(roughness) = .027; β = -.318, p(chord distance) = .048). To this latter point, chords that were less rough and closer in terms of their distance received higher attraction ratings. 
+The same factors predicted a significant amount of the variance in attraction ratings by freshman music majors (R2 = 0.52, R2Adjusted = .43, F(5, 25) = 5.51, p = .001).3 Semitonal voice leading was the only significant predictor of higher attraction ratings (β = .488, p = .003). Chord roughness (β = -.276, p = .084), whether or not the Root of the chord was ^2 or b^2 (β = .241, p = .204), Chord distance (β = -.139, p = .438), and whether the chord contained pre-dominant Scale degrees (β = .370, p = .058) did not contribute significantly to higher attraction ratings.
+In contrast, while the same factors explained a significant amount of the variance in the attraction ratings by the Prolific participants (R2 = 0.68, R2Adjusted = .61, F(5, 25) = 10.41, p < .001), the factors predicting lower attraction ratings were chord roughness (β = -0.527, p < .001), whether the chord had pre-dominant scale degrees (β = -.439, p = .009), and semitonal voice leading (β = -.267, p = .042).4 Chord distance (β = .199, p = .187) and whether or not the Root of the chord was ^2 or b^2 (β = .180, p = .186) did not contribute significantly to attraction ratings. 
+Table 6 illustrates mean attraction ratings for each trial by each of the three participant groups; the chords with the highest attraction rating are shown in bold for that participant group and the chords with the lowest attraction rating are shown in light gray. Both groups of music majors rated the German augmented sixth chord and the iiø7 as chords with the highest attraction to the dominant. In contrast, Prolific participants rated V/V chord highest, followed by diatonic triads from the major mode: IV (second highest), vi, I, iii, iv, and ii.
+Finally, we submitted attraction ratings to a planned multiple regression to understand which pre-dominant scale-degree pairings impacted attraction ratings the most. Using the dummy coding shown in Table 7 (Cohen & Cohen, 1983), multiple regression analysis suggests that all pre-dominant scale-degree pairings significantly predicted higher attraction ratings by junior/senior music majors (R2 = 0.52, R2Adjusted = .44, F(4, 30) = 6.95, p = .001): ^4 and ^6, β = .358, p = .022; #^4 and ^6, β = .476, p = .003; ^4 and b^6, β = .594, p < .001; #^4 and b^6, β = .532, p = .001.5 In contrast, the same multiple regression analyses showed that these scale-degree pairings were not significant factors in ratings of freshman music majors and Prolific participants. Findings suggest that junior/senior music majors used a more finely honed listening strategy, attuning to pairs of scale-degrees when judging pre-dominant chordal attraction. Although beta values were slightly higher for pairings containing b^6, all pre-dominant scale-degree pairings significantly contributed to higher attraction ratings. Yet, the listening strategy used by the junior/senior music majors was not always accurate. For example, it led this cohort to rate the viio7 chord, which is not usually regarded as a pre-dominant, as one of their top 10 attracted chords to V (see Table 6).
+
