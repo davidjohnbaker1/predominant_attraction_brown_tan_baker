@@ -72,6 +72,7 @@ chord_stimuli_data <- chord_stimuli_data %>%
 
 # Chord Features
 chord_features <- read_csv("tidy_tables/chord_features.csv")
+
 chord_features <- janitor::clean_names(chord_features)
 
 chord_features <- chord_features %>%
@@ -80,12 +81,21 @@ chord_features <- chord_features %>%
   mutate(chord = str_trim(chord)) %>%
   mutate(notes = str_trim(notes))
 
+chord_features[chord_features$chord=="Gr6",]$chord <- "Ger6"
+# Match Encoding of iiø7 and viiø7
+chord_features[chord_features$chord=="iiØ7",]$chord <- "iiø7"
+chord_features[chord_features$chord=="viiØ7",]$chord <- "viiø7"
+
+
+
 # Demographic Data
 gmsi <- read_csv("tidy_tables/gmsi_table.csv")
 gmsi <- janitor::clean_names(gmsi)
 gmsi <- gmsi %>% 
   rename(experimental_group = group,
          participant = participant_no)
+
+View(chord_features)
 
 # Build Big Data 
 df <- response_data %>%
@@ -94,6 +104,14 @@ df <- response_data %>%
   left_join(chord_stimuli_data) %>%
   left_join(gmsi) %>%
   left_join(chord_features)
+
+# Table 2 
+df %>% 
+  select(chord_family, chord, parncut_roughness:number_tendency_tones4_6) %>%
+  distinct() -> table_2 
+
+write_csv(table_2,"img/table2.csv")
+
 ```
 
 ## Descriptives
@@ -180,13 +198,14 @@ means_a <- tibble(means = c(4.39518,4.39518+.41810,4.39518+.52897,4.39518+.03238
 
 
 means_a %>%
-  mutate(labz = factor(labz, levels = c("Bridge Chords","Chromatic Predominant","Diatonic Predominant","Non Predominant"))) %>%
+  mutate(labz = factor(labz, 
+                       levels = c("Chromatic Predominant","Diatonic Predominant","Bridge Chords", "Non Predominant"))) %>%
   ggplot(aes(y = means, x = labz)) +
   geom_bar(stat = "identity") +
   geom_bracket(
     xmin = c("Bridge Chords","Bridge Chords", "Non Predominant","Non Predominant"), 
     xmax = c("Chromatic Predominant","Diatonic Predominant","Chromatic Predominant","Diatonic Predominant"),
-    y.position = c(6, 7, 8 , 6), label = c("***"),
+    y.position = c(7, 6, 9 , 8), label = c("***"),
     tip.length = 0.1) +
 #  geom_errorbar(aes(ymin = means - std_errors, ymax = means+std_errors)) +
   labs(x = "Chord Category", y = "Adjusted Means", title = "Chord Category Model") +
@@ -215,6 +234,18 @@ summary(musical_training_rm)
 
 anova(musical_training_rm)
 r.squaredGLMM(musical_training_rm)
+
+# Done with Musial Training SubScale of GMSI 
+musical_training_rm_f3 <- lmer(mean_rating ~ chord_family*f3_musical_training  + (1|participant), 
+                            data = collapsed_model)
+summary(musical_training_rm_f3)
+
+anova(musical_training_rm, musical_training_rm_f3)
+
+anova(musical_training_rm_f3)
+
+r.squaredGLMM(musical_training_rm_f3)
+
 
 # Also run with base-R 
 # rm_anova_music <- aov(mean_rating ~ chord_family*i_have_had_formal_training_in_music_theory_for_years + Error(participant), data = collapsed_model)
@@ -246,6 +277,32 @@ rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("co
 rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("chromatic_pd", "Chromatic Predominant")
 
 rm_musical_plot
+
+
+
+# Musical Training Sub Score
+ggpredict(musical_training_rm_f3, 
+          terms = c("f3_musical_training", "chord_family"), 
+          type = "fe") %>% 
+   plot(ci.style = "ribbon", colors = "bw", alpha = .05) +
+   labs(x = "Subscale: Musical Training", y = "Rating", 
+        title = "Music Training Model (GMSI Subscale)")   -> rm_musical_plot_f3
+   
+
+rm_musical_plot_f3$labels$linetype <- "Chord Category"
+
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("bridge_chords", "Bridge Chords")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("not_pd", "Non predominant")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("common_pd", "Diatonic Predominant")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("chromatic_pd", "Chromatic Predominant")
+
+rm_musical_plot_f3
+
+collapsed_model %>%
+  select(participant, f3_musical_training, i_have_had_formal_training_in_music_theory_for_years) %>%
+  distinct() -> cor_muscials
+
+cor.test(cor_muscials$f3_musical_training, cor_muscials$i_have_had_formal_training_in_music_theory_for_years)
 
 # Descriptive Panel 
 model_data %>%
@@ -294,13 +351,13 @@ r.squaredGLMM(all_musical_indv_theory_model)
 
 ```{r}
 
-(re.effects <- plot_model(all_musical_indv_theory_model, type = "est", show.values = TRUE,colors = c("black","black")))
+(re.effects <- plot_model(all_musical_indv_theory_model, type = "est", show.values = TRUE,colors = c("black","black"),value.offset = .25))
 
-levels(re.effects$data$term) <- c("Music Theory Training", "^4, ^#4, b^6, ^6" , "Root Motion",
+levels(re.effects$data$term) <- c("Music Theory Training", "^4, ^#4, b^6, ^6" , "Descending-Fifths Root Motion",
                                   "Semitonal Voice Leading","Chord Roughness","Chord Distance")
 
 re.effects + 
-  labs(title = "Musical Feature and Musical Training Model", subtitle = "Fixed Effects") + 
+  labs(title = "Musical Feature and Musical Training Model", subtitle = "Fixed Effects") +
   theme_minimal() -> model_3_figure 
 
 model_3_figure
@@ -313,15 +370,18 @@ ggsave(plot = model_3_figure,
 #### Combine to One Panel 
 
 ```{r}
-(analysis_a_plot_1 + descriptive_theory_plot )/ (rm_musical_plot + model_3_figure) -> compound_plot
+
+(analysis_a_plot_1 + descriptive_theory_plot )/ (rm_musical_plot + model_3_figure) + 
+  plot_annotation(title = "Regression Model Analysis", tag_levels = "A") &
+    theme(plot.tag.position = c(0, 1),
+        plot.tag = element_text(size = 15, hjust = 0, vjust = 0)) -> compound_plot
 
 compound_plot
 
-ggsave(filename = "img/Figures/AnalysisPanel.png", height = 9, width = 13, units = "in", dpi = 300)
+ggsave(filename = "img/Figures/Figure2.png", height = 9, width = 13, units = "in", dpi = 300)
 
 # ALL MODELS HERE 
-#tab_model(chord_cat_rm, musical_training_rm,feature_model2)
-#anova(chord_cat_rm, musical_training_rm)
+tab_model(chord_cat_rm, musical_training_rm, all_musical_indv_theory_model)
 ```
 
 
@@ -453,6 +513,7 @@ tidied_pca2 %>%
   mutate(chord_family = str_replace_all(chord_family, "_"," ")) %>%
   mutate(chord_family = str_to_title(chord_family)) %>%
   mutate(chord_family = str_replace_all(chord_family,"Pd","PDs")) %>%
+  mutate(chord_family = str_replace_all(chord_family,"Common","Diatonic")) %>%
   ggplot(aes(x = value, y = reorder(terms, abs(value)))) +
   geom_point(aes(shape = chord_family), size = 3) +
   theme_minimal() +
@@ -516,8 +577,14 @@ ggsave(filename = "img/Figures/PC1vsPC2.png", height = 6, width = 9, dpi = 300, 
 ```{r}
 # Make Panel
 library(patchwork)
-(pc1 + (pc1vpc2)) -> pca_panel
-ggsave(plot = pca_panel, filename = "img/Figures/PCA_Panel.png", height = 9, width = 12, dpi = 300)
+(pc1 + (pc1vpc2)) + plot_annotation(tag_levels = "A") -> pca_panel
+
+library(cowplot)
+cowplot::plot_grid(pc1, pc1vpc2,labels = "AUTO", label_size = 24) -> pca_panel_2
+
+
+ggsave(plot = pca_panel, filename = "img/Figures/Figure3.png", height = 9, width = 12, dpi = 300)
+ggsave(plot = pca_panel_2, filename = "img/Figures/Figure3cow.png", height = 9, width = 12, dpi = 300)
 ```
 
 
@@ -599,6 +666,9 @@ jpeg("img/Figures/Figure4.jpeg", height = 500, width = 900)
 
 plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
 dev.off()
+
+
+plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
 
 # Linage does not seem to affect too much in terms of general categories 
 dist_cluster_object_complete <- hclust(dist_cluster,method = "complete")
