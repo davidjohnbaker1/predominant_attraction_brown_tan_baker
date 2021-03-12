@@ -59,6 +59,7 @@ library(sjlabelled)
 library(forcats)
 library(janitor)
 library(tidymodels)
+library(viridis)
 
 # Importing Data
 ## Experimental Data 
@@ -95,7 +96,7 @@ gmsi <- gmsi %>%
   rename(experimental_group = group,
          participant = participant_no)
 
-View(chord_features)
+#View(chord_features)
 
 # Build Big Data 
 df <- response_data %>%
@@ -110,7 +111,7 @@ df %>%
   select(chord_family, chord, parncut_roughness:number_tendency_tones4_6) %>%
   distinct() -> table_2 
 
-write_csv(table_2,"img/table2.csv")
+#write_csv(table_2,"img/table2.csv")
 
 ```
 
@@ -185,6 +186,9 @@ summary(chord_cat_rm)
 anova(chord_cat_rm)
 r.squaredGLMM(chord_cat_rm)
 
+options(scipen = 999)
+summary(chord_cat_rm, ddf = "Satterthwaite")
+
 # Post Hoc Comparisions 
 glht(chord_cat_rm, mcp(chord_family="Tukey")) %>% summary()
 ```
@@ -234,6 +238,9 @@ summary(musical_training_rm)
 
 anova(musical_training_rm)
 r.squaredGLMM(musical_training_rm)
+
+summary(musical_training_rm, ddf = "Satterthwaite")
+
 
 # Done with Musial Training SubScale of GMSI 
 musical_training_rm_f3 <- lmer(mean_rating ~ chord_family*f3_musical_training  + (1|participant), 
@@ -311,17 +318,19 @@ model_data %>%
   distinct() %>%
   ggplot(aes(
     x = fct_reorder(experimental_group, i_have_had_formal_training_in_music_theory_for_years), 
-    y = i_have_had_formal_training_in_music_theory_for_years)) +
+    y = i_have_had_formal_training_in_music_theory_for_years,
+    color = experimental_group, group = experimental_group)) +
   geom_jitter() +
   scale_y_continuous(breaks = seq(1,7,1), 
                      labels = vexta) +
   stat_summary(fun = "mean", colour = "red", size = 2, geom = "point") +
-  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = 1) +
+  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = .5 ) + # took down size 
   coord_flip() +
   labs(title = "Distribution of Music Theory Training",
        subtitle = "Question 38 from Goldsmiths Musical Sophistication Index",
        x = "Participant Group",
-       y = "I have had formal training in music theory for __ years") +
+       y = "I have had formal training in music theory for __ years", color = "Experimental Group") +
+  scale_color_viridis(discrete = TRUE, option = "C") + # added here for color, also needed to add aes groupings
   theme_minimal() -> descriptive_theory_plot
 
 descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Junior/Senior")
@@ -372,7 +381,7 @@ ggsave(plot = model_3_figure,
 ```{r}
 
 (analysis_a_plot_1 + descriptive_theory_plot )/ (rm_musical_plot + model_3_figure) + 
-  plot_annotation(title = "Regression Model Analysis", tag_levels = "A") &
+  plot_annotation( tag_levels = "A") &
     theme(plot.tag.position = c(0, 1),
         plot.tag = element_text(size = 15, hjust = 0, vjust = 0)) -> compound_plot
 
@@ -515,11 +524,13 @@ tidied_pca2 %>%
   mutate(chord_family = str_replace_all(chord_family,"Pd","PDs")) %>%
   mutate(chord_family = str_replace_all(chord_family,"Common","Diatonic")) %>%
   ggplot(aes(x = value, y = reorder(terms, abs(value)))) +
-  geom_point(aes(shape = chord_family), size = 3) +
+  geom_point(aes(color = chord_family), size = 3) + # swapped from shape 
   theme_minimal() +
+  scale_color_viridis(option = "D", discrete = TRUE) +
   theme(legend.position="bottom") +
   labs(y = "Chord", x = "Loading",
-       title = "Response Strategy: Experimental Prompt", shape = "Chord Category") -> pc1
+       title = "Response Strategy: Experimental Prompt", shape = "Chord Category",
+       color = "Chord Category") -> pc1
 
 
 #   scale_fill_manual(labels = c("Bridge Chords","Chromatic PDs","Common PDs","Non PDs"), values = c("green","black","blue","red")) +
@@ -685,6 +696,17 @@ cex=.9)
 
 plot(dist_cluster_object_single, main="Single Linkage", xlab="", sub="",
 cex=.9)
+
+```
+
+
+```{r}
+# Attempt to Make HCA Better Color
+#install.packages("ape")
+library(ape)
+
+dist_cluster_object
+
 
 ```
 
