@@ -155,7 +155,7 @@ model_data <- df %>%
          block, 
          i_have_had_formal_training_in_music_theory_for_years, 
          f3_musical_training,experimental_group) %>%
-  mutate(experimental_group = factor(experimental_group, c("prolific", "freshman","upperclass"))) %>%
+  mutate(experimental_group = factor(experimental_group, c("upperclass","freshman", "prolific"))) %>%
   mutate(chord_family_f = factor("non_pd","bridge","common_pd","chromatic"))
 
 # Test retest, OK, collapse to one average rating per participant
@@ -197,22 +197,24 @@ glht(chord_cat_rm, mcp(chord_family="Tukey")) %>% summary()
 
 ```{r}
 means_a <- tibble(means = c(4.39518,4.39518+.41810,4.39518+.52897,4.39518+.03238),
-                std_errors = c(.09757,.05051,.05051,.05229),
-                labz = c("Bridge Chords","Chromatic Predominant","Diatonic Predominant","Non Predominant"))
+                std_errors = c(.09757,.05051,.05051, .05229),
+                labz = c("Bridge Chords","Chromatic PDs","Diatonic PDs","Non PDs"))
 
 
 means_a %>%
   mutate(labz = factor(labz, 
-                       levels = c("Chromatic Predominant","Diatonic Predominant","Bridge Chords", "Non Predominant"))) %>%
-  ggplot(aes(y = means, x = labz)) +
+                       levels = c("Chromatic PDs","Diatonic PDs","Bridge Chords", "Non PDs"))) %>%
+  ggplot(aes(y = means, x = labz, fill = labz)) +
   geom_bar(stat = "identity") +
-  geom_bracket(
-    xmin = c("Bridge Chords","Bridge Chords", "Non Predominant","Non Predominant"), 
-    xmax = c("Chromatic Predominant","Diatonic Predominant","Chromatic Predominant","Diatonic Predominant"),
-    y.position = c(7, 6, 9 , 8), label = c("***"),
-    tip.length = 0.1) +
 #  geom_errorbar(aes(ymin = means - std_errors, ymax = means+std_errors)) +
-  labs(x = "Chord Category", y = "Adjusted Means", title = "Chord Category Model") +
+  labs(x = "Chord Category", y = "Adjusted Means", title = "Chord Category Model", fill = "Chord Category") +
+  scale_fill_viridis(discrete = TRUE) +
+  geom_bracket(inherit.aes = FALSE, xmin = c("Bridge Chords","Bridge Chords", "Non PDs","Non PDs"),
+  xmax = c("Chromatic PDs","Diatonic PDs","Chromatic PDs","Diatonic PDs"),
+   y.position = c(7, 6, 9 , 8),
+   label = c("***"),
+   tip.length = 0.1, 
+  ) +
   theme_minimal() -> analysis_a_plot_1
 
 analysis_a_plot_1
@@ -266,16 +268,22 @@ library(ggeffects)
 
 vexta = c("0","0.5","1","2","3","4 - 6","> 7")
 
-ggpredict(musical_training_rm, 
-          terms = c("i_have_had_formal_training_in_music_theory_for_years", "chord_family"), 
-          type = "fe") %>% 
-   plot(ci.style = "ribbon", colors = "bw", alpha = .05) +
-   labs(x = "I have had formal training in music theory for __ years", y = "Rating", 
-        title = "Music Theory Training Model") +
-   scale_x_continuous(breaks = seq(1,7,1), 
-                     labels = vexta)  -> rm_musical_plot
-   
 
+
+#BLACK AND WHITE
+ggpredict(musical_training_rm,
+          terms = c("i_have_had_formal_training_in_music_theory_for_years", "chord_family"),
+          type = "fe") %>%
+   plot(ci.style = "ribbon",  alpha = .05) + # colors = "bw",
+   labs(x = "I have had formal training in music theory for __ years", y = "Rating",
+        title = "Music Theory Training Model") +
+   scale_x_continuous(breaks = seq(1,7,1),
+                     labels = vexta)  -> rm_musical_plot
+
+
+rm_musical_plot$data$group
+
+# For When it's BW 
 rm_musical_plot$labels$linetype <- "Chord Category"
 
 rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("bridge_chords", "Bridge Chords")
@@ -283,11 +291,27 @@ rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("no
 rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("common_pd", "Diatonic Predominant")
 rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("chromatic_pd", "Chromatic Predominant")
 
-rm_musical_plot
+# For Color 
+rm_musical_plot$labels$colour <- "Chord Category"
 
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("bridge_chords", "Bridge Chords")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("not_pd", "Non PDs")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("common_pd", "Diatonic PDs")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("chromatic_pd", "Chromatic PDs")
 
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
 
+rm_musical_plot <- rm_musical_plot + 
+  scale_color_manual(values = c("#55C667FF","#440154FF","#39568CFF","#FDE725FF"))
+
+##############################################################################
 # Musical Training Sub Score
+# Show is similar (not in manuscript)
+
+
 ggpredict(musical_training_rm_f3, 
           terms = c("f3_musical_training", "chord_family"), 
           type = "fe") %>% 
@@ -330,10 +354,10 @@ model_data %>%
        subtitle = "Question 38 from Goldsmiths Musical Sophistication Index",
        x = "Participant Group",
        y = "I have had formal training in music theory for __ years", color = "Experimental Group") +
-  scale_color_viridis(discrete = TRUE, option = "C") + # added here for color, also needed to add aes groupings
+  scale_color_viridis(discrete = TRUE, option = "C",begin = .2, end = .8) + # added here for color, also needed to add aes groupings
   theme_minimal() -> descriptive_theory_plot
 
-descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Junior/Senior")
+descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Juniors/Seniors")
 
 descriptive_theory_plot
 #---------------------------------------------------------------------
@@ -522,7 +546,9 @@ tidied_pca2 %>%
   mutate(chord_family = str_replace_all(chord_family, "_"," ")) %>%
   mutate(chord_family = str_to_title(chord_family)) %>%
   mutate(chord_family = str_replace_all(chord_family,"Pd","PDs")) %>%
+  mutate(chord_family = str_replace_all(chord_family,"Not","Non")) %>%
   mutate(chord_family = str_replace_all(chord_family,"Common","Diatonic")) %>%
+  mutate(chord_family = factor(chord_family, levels = c("Chromatic PDs","Diatonic PDs","Bridge Chords", "Non PDs"))) %>%
   ggplot(aes(x = value, y = reorder(terms, abs(value)))) +
   geom_point(aes(color = chord_family), size = 3) + # swapped from shape 
   theme_minimal() +
@@ -532,8 +558,11 @@ tidied_pca2 %>%
        title = "Response Strategy: Experimental Prompt", shape = "Chord Category",
        color = "Chord Category") -> pc1
 
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
 
-#   scale_fill_manual(labels = c("Bridge Chords","Chromatic PDs","Common PDs","Non PDs"), values = c("green","black","blue","red")) +
 pc1
 
 ggsave(filename = "img/Figures/PC1.png", 
@@ -564,13 +593,15 @@ Here we use loadings on each rating, plot PC1 vs PC2
 ```{r}
 # PANEL 2 
 juice(pca_prep) %>%
-  mutate(group = str_replace_all(group, "upperclass","Junior/Senior")) %>%
+  mutate(group = str_replace_all(group, "upperclass","Juniors/Seniors")) %>%
   mutate(group = str_to_title(group)) %>%
   mutate(`Experimental Group` = str_to_title(group)) %>%
   ggplot(aes(PC1, PC2, 
-             shape = `Experimental Group`)) +
+            # shape = `Experimental Group`,
+             color = `Experimental Group`)) +
   geom_point(alpha = 1) +
   scale_shape_manual(values=c( 8, 13, 4))+
+  scale_color_viridis(discrete = TRUE, option = "C", begin = .2, end = .8) +
   theme_minimal() +
   theme(legend.position="bottom") +
   labs(title = "Scores of Items from PCA Loadings",
@@ -678,8 +709,82 @@ jpeg("img/Figures/Figure4.jpeg", height = 500, width = 900)
 plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
 dev.off()
 
-
 plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
+
+# ADD COLOR =====================================================================
+#install.packages("dendextend")
+library(dendextend)
+
+# dont judge me for doing this manually 
+#scale_color_manual(values = c("#55C667FF","#440154FF","#39568CFF","#FDE725FF"))
+
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
+
+chord_stimuli_data %>%
+  select(chord, chord_family) %>% 
+  print(n = 100)
+
+jpeg("img/Figures/Figure4_color.jpeg", height = 400, width = 800)
+
+
+dist_cluster_object %>%
+  as.dendrogram %>%
+  set("labels_col", c(
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#39568CFF",  # Blue
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#FDE725FF",  # Yellow 
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#440154FF",  # Purple (N6)
+    "#FDE725FF",  # Yellow (vii07)
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#FDE725FF",  # Yellow (i7)
+    "#55C667FF",
+    "#55C667FF",
+    "#55C667FF",
+    "#55C667FF",
+    "#55C667FF",
+    "#55C667FF",
+    "#FDE725FF",  # Yellow (I7)
+    "#FDE725FF",  # Yellow 
+    "#FDE725FF",  # Yellow 
+    "#55C667FF",
+    "#55C667FF",
+    "#55C667FF"
+    
+    )) %>%
+  set("labels_cex", 1.5) %>%
+  plot(main = "HCA Chord Features") 
+
+legend("topright", 
+     legend = c("Chromatic PD" , "Common PD" , "Bridge Chords" , "Non PDs"), 
+     col = c(
+           "#440154FF",  # Purple
+              "#39568CFF",  # Blue
+    "#FDE725FF",  # Yellow 
+    "#55C667FF"),
+     pch = c(20), bty = "n", cex = 1.5 , 
+     text.col = "black", horiz = FALSE, inset = c(0, 0))
+
+dev.off()
+
+
+
+#=================================================================================
+
 
 # Linage does not seem to affect too much in terms of general categories 
 dist_cluster_object_complete <- hclust(dist_cluster,method = "complete")
