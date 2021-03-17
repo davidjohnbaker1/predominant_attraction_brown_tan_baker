@@ -154,8 +154,11 @@ model_data <- df %>%
          participant,
          block, 
          i_have_had_formal_training_in_music_theory_for_years, 
-         f3_musical_training,experimental_group) %>%
-  mutate(experimental_group = factor(experimental_group, c("upperclass","freshman", "prolific"))) %>%
+         f3_musical_training,
+         experimental_group) %>%
+  mutate(experimental_group = str_replace_all(experimental_group, pattern = "freshman",replacement = "freshmen")) %>%
+  mutate(experimental_group = str_replace_all(experimental_group, pattern = "upperclass",replacement = "Juniors/Seniors")) %>%
+  mutate(experimental_group = factor(experimental_group, c("Juniors/Seniors","freshmen", "prolific"))) %>%
   mutate(chord_family_f = factor("non_pd","bridge","common_pd","chromatic"))
 
 # Test retest, OK, collapse to one average rating per participant
@@ -337,11 +340,12 @@ cor.test(cor_muscials$f3_musical_training, cor_muscials$i_have_had_formal_traini
 
 # Descriptive Panel 
 model_data %>%
-  mutate(experimental_group = as.factor(str_to_title(experimental_group))) %>%
+  mutate(experimental_group = str_to_title(experimental_group)) %>%
+  mutate(experimental_group = factor(experimental_group, levels = c("Juniors/Seniors","Freshmen","Prolific"))) %>%
   select(experimental_group, i_have_had_formal_training_in_music_theory_for_years, participant) %>%
   distinct() %>%
   ggplot(aes(
-    x = fct_reorder(experimental_group, i_have_had_formal_training_in_music_theory_for_years), 
+    x = experimental_group, i_have_had_formal_training_in_music_theory_for_years, 
     y = i_have_had_formal_training_in_music_theory_for_years,
     color = experimental_group, group = experimental_group)) +
   geom_jitter() +
@@ -354,10 +358,11 @@ model_data %>%
        subtitle = "Question 38 from Goldsmiths Musical Sophistication Index",
        x = "Participant Group",
        y = "I have had formal training in music theory for __ years", color = "Experimental Group") +
-  scale_color_viridis(discrete = TRUE, option = "C",begin = .2, end = .8) + # added here for color, also needed to add aes groupings
+    scale_color_viridis(discrete = TRUE, option = "A", begin = .5, end = .9, direction = -1) +
+  #scale_color_viridis(discrete = TRUE, option = "E", begin = .1, end = .9) + # added here for color, also needed to add aes groupings
   theme_minimal() -> descriptive_theory_plot
 
-descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Juniors/Seniors")
+#descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Juniors/Seniors")
 
 descriptive_theory_plot
 #---------------------------------------------------------------------
@@ -594,14 +599,16 @@ Here we use loadings on each rating, plot PC1 vs PC2
 # PANEL 2 
 juice(pca_prep) %>%
   mutate(group = str_replace_all(group, "upperclass","Juniors/Seniors")) %>%
+  mutate(group = str_replace_all(group, "freshman","freshmen")) %>%
   mutate(group = str_to_title(group)) %>%
   mutate(`Experimental Group` = str_to_title(group)) %>%
+  mutate(`Experimental Group` = factor(`Experimental Group`, levels = c("Juniors/Seniors","Freshmen","Prolific"))) %>%
   ggplot(aes(PC1, PC2, 
             # shape = `Experimental Group`,
              color = `Experimental Group`)) +
   geom_point(alpha = 1) +
   scale_shape_manual(values=c( 8, 13, 4))+
-  scale_color_viridis(discrete = TRUE, option = "C", begin = .2, end = .8) +
+  scale_color_viridis(discrete = TRUE, option = "A", begin = .5, end = .9, direction = -1) +
   theme_minimal() +
   theme(legend.position="bottom") +
   labs(title = "Scores of Items from PCA Loadings",
@@ -743,34 +750,34 @@ dist_cluster_object %>%
     "#440154FF",  # Purple
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
-    "#FDE725FF",  # Yellow 
+    "#55C667FF",  # #55C667FF 
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
     "#440154FF",  # Purple (N6)
-    "#FDE725FF",  # Yellow (vii07)
+    "#55C667FF",  # #55C667FF (vii07)
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
-    "#FDE725FF",  # Yellow (i7)
-    "#55C667FF",
-    "#55C667FF",
-    "#55C667FF",
-    "#55C667FF",
-    "#55C667FF",
-    "#55C667FF",
-    "#FDE725FF",  # Yellow (I7)
-    "#FDE725FF",  # Yellow 
-    "#FDE725FF",  # Yellow 
-    "#55C667FF",
-    "#55C667FF",
-    "#55C667FF"
+    "#55C667FF",  # #55C667FF (i7)
+    "#FDE725FF",
+    "#FDE725FF",
+    "#FDE725FF",
+    "#FDE725FF",
+    "#FDE725FF",
+    "#FDE725FF",
+    "#55C667FF",  # #55C667FF (I7)
+    "#55C667FF",  # #55C667FF 
+    "#55C667FF",  # #55C667FF 
+    "#FDE725FF",
+    "#FDE725FF",
+    "#FDE725FF"
     
     )) %>%
   set("labels_cex", 1.5) %>%
   plot(main = "HCA Chord Features") 
 
 legend("topright", 
-     legend = c("Chromatic PD" , "Common PD" , "Bridge Chords" , "Non PDs"), 
+     legend = c("Chromatic PDs" , "Common PDs" , "Bridge Chords" , "Non PDs"), 
      col = c(
            "#440154FF",  # Purple
               "#39568CFF",  # Blue
@@ -804,14 +811,4 @@ cex=.9)
 
 ```
 
-
-```{r}
-# Attempt to Make HCA Better Color
-#install.packages("ape")
-library(ape)
-
-dist_cluster_object
-
-
-```
 
