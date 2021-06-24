@@ -1,0 +1,689 @@
+---
+title: "Github Analysis"
+author: "David John Baker"
+date: "24/06/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This markdown contains the analysis for "The Attraction of Predominant Chords".
+It attempts to more clearly link the theoretical introduction to the statistical modeling to the discussion.
+
+The document is meant to serve as a reference to be pasted into the manuscript.
+All code to create tables, charts, and statistical analyses are found here.
+
+## Hypotheses and Analyses 
+
+### Supervised 
+
+1. Top Down Model: We predict category of predominant will predict attraction ratings globally.
+  - Chromatic most attracted
+  - Diatonic second
+  - Bridge third
+  - Non PD last 
+  - **Follow up with pairwise comparisons**
+2. We predict musical training will lead to qualitative difference in ratings (interaction/random slopes)
+3. We predict feature analysis will help structure what it is about chords that leads to differences in ratings
+
+### Unsupervised 
+
+Following our regressionthe modeling of these five musical features, a final analysis using unsupervised machine learning methods to explore participant response strategies(James et al. 2013). Mirroring our above strategy to take both a bottom up and top down approach to our perceptual data using supervised methods, we also employ a top down and bottom up analysis using unsupervised methods. 
+
+We first decompose the empirical response data from our experiment using principal component analysis (PCA); this analysis serves as our top down method of understanding listener response strategies. 
+
+Secondly, we submit the features used in our feature-based regression model to a hierarchical agglomerative clustering algorithm to consider novel ways the pre-dominant category might be re-conceptualized. 
+
+## Data Import 
+
+```{r, include=FALSE}
+library(readr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(GGally)
+library(MuMIn)
+library(janitor)
+library(lme4)
+library(lmerTest)
+library(patchwork)
+library(gt)
+library(psych)
+library(Hmisc)
+library(forcats)
+library(multcomp)
+library(ggpubr)
+library(dplyr)
+library(sjPlot)
+library(sjlabelled)
+library(forcats)
+library(janitor)
+library(tidymodels)
+library(viridis)
+# Importing Data
+## Experimental Data 
+response_data <- read_csv("tidy_tables/response_data.csv")
+chord_stimuli_data <- read_csv("tidy_tables/chord_experiment_stimuli_data.csv")
+chord_stimuli_data <- chord_stimuli_data %>% 
+  rename(chord = chord_symbol,
+         chord_family = group) 
+# Chord Features
+chord_features <- read_csv("tidy_tables/chord_features.csv")
+chord_features <- janitor::clean_names(chord_features)
+chord_features <- chord_features %>%
+  separate(col = stimuli, into = c("chord_id","temp"), "\\.") %>%
+  separate(col = temp, into = c("chord","notes"), sep = "\\:") %>%
+  mutate(chord = str_trim(chord)) %>%
+  mutate(notes = str_trim(notes))
+chord_features[chord_features$chord=="Gr6",]$chord <- "Ger6"
+# Match Encoding of iiø7 and viiø7
+chord_features[chord_features$chord=="iiØ7",]$chord <- "iiø7"
+chord_features[chord_features$chord=="viiØ7",]$chord <- "viiø7"
+# Demographic Data
+gmsi <- read_csv("tidy_tables/gmsi_table.csv")
+gmsi <- janitor::clean_names(gmsi)
+gmsi <- gmsi %>% 
+  rename(experimental_group = group,
+         participant = participant_no)
+#View(chord_features)
+# Build Big Data 
+df <- response_data %>%
+  pivot_longer(cols = I:`viio7/V`,names_to = "chord",values_to = "rating") %>%
+  select(participant, chord, rating, block, group, `How attracted`) %>%
+  left_join(chord_stimuli_data) %>%
+  left_join(gmsi) %>%
+  left_join(chord_features)
+# Table 2 
+df %>% 
+  select(chord_family, chord, parncut_roughness:number_tendency_tones4_6) %>%
+  distinct() -> table_2 
+#write_csv(table_2,"img/table2.csv")
+```
+
+## Descriptives
+
+```{r}
+df %>%
+  select(participant, group, i_have_had_formal_training_in_music_theory_for_years) %>%
+  distinct() %>%
+  group_by(group) %>%
+  summarise(mean_theory = mean(i_have_had_formal_training_in_music_theory_for_years),
+            sd_theory = sd(i_have_had_formal_training_in_music_theory_for_years))
+```
+
+## Results
+
+### Supervised 
+
+First we check for test-restest reliability then collapse data based on R1F  =  0.92 Reliability of average of all items for one  time (Random time effects) and RkF  =  0.96 Reliability of average of all items and both times (Fixed time effects).
+
+```{r}
+# Check test-retest with psych package 
+response_data %>%
+  select(block,I:`viio7/V`) %>%
+  rename(time = block) %>%
+  data.frame() %>%
+  testRetest()
+# Reduce df to variables for modeling 
+model_data <- df %>%
+  select(rating, 
+         chord,
+         chord_family,
+         lerdhal_tension,
+         parncut_roughness,
+         semitone_voice_move, 
+         rootmotion,
+         number_tendency_tones4_6,
+         participant,
+         block, 
+         i_have_had_formal_training_in_music_theory_for_years, 
+         f3_musical_training,
+         experimental_group) %>%
+  mutate(experimental_group = str_replace_all(experimental_group, pattern = "freshman",replacement = "freshmen")) %>%
+  mutate(experimental_group = str_replace_all(experimental_group, pattern = "upperclass",replacement = "Juniors/Seniors")) %>%
+  mutate(experimental_group = factor(experimental_group, c("Juniors/Seniors","freshmen", "prolific"))) %>%
+  mutate(chord_family_f = factor("non_pd","bridge","common_pd","chromatic"))
+# Test retest, OK, collapse to one average rating per participant
+model_data %>%
+  group_by(chord, participant) %>%
+  summarise(mean_rating = mean(rating)) -> summary_ratings
+model_data %>%
+  select(chord, chord_family, lerdhal_tension:participant, i_have_had_formal_training_in_music_theory_for_years, f3_musical_training, experimental_group) %>%
+  left_join(summary_ratings) -> collapsed_model
+```
+
+## Regression Analyses
+
+We now run each hypothesis as linear, mixed effects regression model.
+We note here that [ANOVA models are a special case of regression](https://lindeloev.github.io/tests-as-linear/) and that running a linear mixed effects model with a random effect of participant is [analgous to running a within subjects repeated measures ANOVA in R](https://m-clark.github.io/docs/mixedModels/anovamixed.html).
+
+
+### Chord Category Model 
+
+```{r}
+# CHORD CATEGORY
+# RM-ANOVA as LINEAR MIXED EFFECTS
+chord_cat_rm <- lmer(mean_rating ~ chord_family + (1|participant), data = collapsed_model)
+# Model Summary Output 
+summary(chord_cat_rm)
+anova(chord_cat_rm)
+r.squaredGLMM(chord_cat_rm)
+options(scipen = 999)
+summary(chord_cat_rm, ddf = "Satterthwaite")
+# Post Hoc Comparisions 
+glht(chord_cat_rm, mcp(chord_family="Tukey")) %>% summary()
+```
+
+#### Figure For Chord Category Model 
+
+```{r}
+means_a <- tibble(means = c(4.39518,4.39518+.41810,4.39518+.52897,4.39518+.03238),
+                std_errors = c(.09757,.05051,.05051, .05229),
+                labz = c("Bridge Chords","Chromatic PDs","Diatonic PDs","Non PDs"))
+means_a %>%
+  mutate(labz = factor(labz, 
+                       levels = c("Chromatic PDs","Diatonic PDs","Bridge Chords", "Non PDs"))) %>%
+  ggplot(aes(y = means, x = labz, fill = labz)) +
+  geom_bar(stat = "identity") +
+#  geom_errorbar(aes(ymin = means - std_errors, ymax = means+std_errors)) +
+  labs(x = "Chord Category", y = "Adjusted Means", title = "Chord Category Model", fill = "Chord Category") +
+  scale_fill_viridis(discrete = TRUE) +
+  geom_bracket(inherit.aes = FALSE, xmin = c("Bridge Chords","Bridge Chords", "Non PDs","Non PDs"),
+  xmax = c("Chromatic PDs","Diatonic PDs","Chromatic PDs","Diatonic PDs"),
+   y.position = c(7, 6, 9 , 8),
+   label = c("***"),
+   tip.length = 0.1, 
+  ) +
+  theme_minimal() -> analysis_a_plot_1
+analysis_a_plot_1
+# Same analysis, run with base R calculations 
+#chord_cat_rm_anova <- aov(mean_rating ~ chord_family + Error(participant), data = collapsed_model)
+#summary(chord_cat_rm_anova)
+```
+
+### Musical Training Model 
+
+```{r}
+# MUSICAL TRAINING
+# Run as Linear Mixed Effects
+# Main Effects: Theory Training and Chord Category
+# Interaction 
+# Participant as Random Effects, within subject 
+musical_training_rm <- lmer(mean_rating ~ chord_family*i_have_had_formal_training_in_music_theory_for_years  + (1|participant), 
+                            data = collapsed_model)
+summary(musical_training_rm)
+anova(musical_training_rm)
+r.squaredGLMM(musical_training_rm)
+summary(musical_training_rm, ddf = "Satterthwaite")
+# Done with Musial Training SubScale of GMSI 
+musical_training_rm_f3 <- lmer(mean_rating ~ chord_family*f3_musical_training  + (1|participant), 
+                            data = collapsed_model)
+summary(musical_training_rm_f3)
+anova(musical_training_rm, musical_training_rm_f3)
+anova(musical_training_rm_f3)
+r.squaredGLMM(musical_training_rm_f3)
+# Also run with base-R 
+# rm_anova_music <- aov(mean_rating ~ chord_family*i_have_had_formal_training_in_music_theory_for_years + Error(participant), data = collapsed_model)
+# summary(rm_anova_music)
+```
+
+#### Figure for Musical Training Model 
+
+```{r}
+library(ggeffects)
+vexta = c("0","0.5","1","2","3","4 - 6","> 7")
+#BLACK AND WHITE
+ggpredict(musical_training_rm,
+          terms = c("i_have_had_formal_training_in_music_theory_for_years", "chord_family"),
+          type = "fe") %>%
+   plot(ci.style = "ribbon",  alpha = .05) + # colors = "bw",
+   labs(x = "I have had formal training in music theory for __ years", y = "Rating",
+        title = "Music Theory Training Model") +
+   scale_x_continuous(breaks = seq(1,7,1),
+                     labels = vexta)  -> rm_musical_plot
+rm_musical_plot$data$group
+# For When it's BW 
+rm_musical_plot$labels$linetype <- "Chord Category"
+rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("bridge_chords", "Bridge Chords")
+rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("not_pd", "Non predominant")
+rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("common_pd", "Diatonic Predominant")
+rm_musical_plot$data$group <- rm_musical_plot$data$group %>% str_replace_all("chromatic_pd", "Chromatic Predominant")
+# For Color 
+rm_musical_plot$labels$colour <- "Chord Category"
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("bridge_chords", "Bridge Chords")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("not_pd", "Non PDs")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("common_pd", "Diatonic PDs")
+rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace_all("chromatic_pd", "Chromatic PDs")
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
+rm_musical_plot <- rm_musical_plot + 
+  scale_color_manual(values = c("#55C667FF","#440154FF","#39568CFF","#FDE725FF"))
+##############################################################################
+# Musical Training Sub Score
+# Show is similar (not in manuscript)
+ggpredict(musical_training_rm_f3, 
+          terms = c("f3_musical_training", "chord_family"), 
+          type = "fe") %>% 
+   plot(ci.style = "ribbon", colors = "bw", alpha = .05) +
+   labs(x = "Subscale: Musical Training", y = "Rating", 
+        title = "Music Training Model (GMSI Subscale)")   -> rm_musical_plot_f3
+   
+rm_musical_plot_f3$labels$linetype <- "Chord Category"
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("bridge_chords", "Bridge Chords")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("not_pd", "Non predominant")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("common_pd", "Diatonic Predominant")
+rm_musical_plot_f3$data$group <- rm_musical_plot_f3$data$group %>% str_replace_all("chromatic_pd", "Chromatic Predominant")
+rm_musical_plot_f3
+collapsed_model %>%
+  select(participant, f3_musical_training, i_have_had_formal_training_in_music_theory_for_years) %>%
+  distinct() -> cor_muscials
+cor.test(cor_muscials$f3_musical_training, cor_muscials$i_have_had_formal_training_in_music_theory_for_years)
+# Descriptive Panel 
+model_data %>%
+  mutate(experimental_group = str_to_title(experimental_group)) %>%
+  mutate(experimental_group = factor(experimental_group, levels = c("Juniors/Seniors","Freshmen","Prolific"))) %>%
+  select(experimental_group, i_have_had_formal_training_in_music_theory_for_years, participant) %>%
+  distinct() %>%
+  ggplot(aes(
+    x = experimental_group, i_have_had_formal_training_in_music_theory_for_years, 
+    y = i_have_had_formal_training_in_music_theory_for_years,
+    color = experimental_group, group = experimental_group)) +
+  geom_jitter() +
+  scale_y_continuous(breaks = seq(1,7,1), 
+                     labels = vexta) +
+  stat_summary(fun = "mean", colour = "red", size = 2, geom = "point") +
+  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = .5 ) + # took down size 
+  coord_flip() +
+  labs(title = "Distribution of Music Theory Training",
+       subtitle = "Question 38 from Goldsmiths Musical Sophistication Index",
+       x = "Participant Group",
+       y = "I have had formal training in music theory for __ years", color = "Experimental Group") +
+    scale_color_viridis(discrete = TRUE, option = "A", begin = .5, end = .9, direction = -1) +
+  #scale_color_viridis(discrete = TRUE, option = "E", begin = .1, end = .9) + # added here for color, also needed to add aes groupings
+  theme_minimal() -> descriptive_theory_plot
+#descriptive_theory_plot$data$experimental_group <- descriptive_theory_plot$data$experimental_group %>% str_replace_all("Upperclass", "Juniors/Seniors")
+descriptive_theory_plot
+#---------------------------------------------------------------------
+```
+
+### Music Feature + Training Model 
+
+```{r}
+all_musical_indv_theory_model <- lmer(scale(rating) ~  scale(lerdhal_tension) + 
+                                      scale(parncut_roughness) + scale(semitone_voice_move) + 
+                                        as.character(rootmotion) + scale(number_tendency_tones4_6) +
+                                        scale(i_have_had_formal_training_in_music_theory_for_years) +
+                        (1+scale( i_have_had_formal_training_in_music_theory_for_years)|participant), 
+                                    data = model_data)
+r.squaredGLMM(all_musical_indv_theory_model)
+```
+
+#### Figure for Musical Training Model 
+
+```{r}
+(re.effects <- plot_model(all_musical_indv_theory_model, type = "est", show.values = TRUE,colors = c("black","black"),value.offset = .25))
+levels(re.effects$data$term) <- c("Music Theory Training", "^4, ^#4, b^6, ^6" , "Descending-Fifths Root Motion",
+                                  "Semitonal Voice Leading","Chord Roughness","Chord Distance")
+re.effects + 
+  labs(title = "Musical Feature and Musical Training Model", subtitle = "Fixed Effects") +
+  theme_minimal() -> model_3_figure 
+model_3_figure
+ggsave(plot = model_3_figure, 
+       filename = "img/Figures/Figure_Model_Three_fixed_effects_.png",
+              height = 6, width = 9, units = "in", dpi = 300)
+```
+
+#### Combine to One Panel 
+
+```{r}
+(analysis_a_plot_1 + descriptive_theory_plot )/ (rm_musical_plot + model_3_figure) + 
+  plot_annotation( tag_levels = "A") &
+    theme(plot.tag.position = c(0, 1),
+        plot.tag = element_text(size = 15, hjust = 0, vjust = 0)) -> compound_plot
+compound_plot
+
+ggsave(filename = "img/Figures/Figure2.tiff", height = 9, width = 13, units = "in", dpi = 300)
+ggsave(filename = "img/Figures/Figure2.eps", height = 9, width = 13, units = "in", dpi = 300)
+
+
+# ALL MODELS HERE 
+tab_model(chord_cat_rm, musical_training_rm, all_musical_indv_theory_model)
+```
+
+
+## Unsupervised Analyses 
+
+The next two sections show code used for the PCA and HCA.
+
+```{r}
+# Re-Import Tables
+# Get only rating data
+attraction_ratings <- response_data %>%
+  dplyr::select(I:`viio7/V`, group, participant)
+# Demographic Data
+gmsi <- read_csv("tidy_tables/gmsi_table.csv")
+gmsi <- janitor::clean_names(gmsi)
+gmsi <- gmsi %>% 
+  rename(experimental_group = group,
+         participant = participant_no)
+gmsi %>%
+  dplyr::select(participant, i_have_had_formal_training_in_music_theory_for_years) -> gmsi_2
+attraction_ratings <- attraction_ratings %>% 
+  left_join(gmsi_2)
+  
+chord_stimuli_data <- read_csv("tidy_tables/chord_experiment_stimuli_data.csv")
+chord_stimuli_data <- chord_stimuli_data %>% 
+  rename(chord = chord_symbol,
+         chord_family = group) 
+```
+
+The object `attraction_ratings` now has all the ratings of the chords and the group identifier from where the rating came from. 
+
+Next, we prep and run the PCA on this data.
+Experimental group is saved to be an identifier.
+
+```{r}
+# Make Exploratory Plot 
+pca_rec <- recipe(~., data = attraction_ratings ) %>%
+    update_role(group, participant, i_have_had_formal_training_in_music_theory_for_years, new_role = "id") %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors())
+pca_prep <- prep(pca_rec)
+pca_prep
+tidied_pca <- tidy(pca_prep, 2)
+chord_stimuli_data_table <- chord_stimuli_data %>%
+  rename(terms = chord)
+tidied_pca %>%
+  left_join(chord_stimuli_data_table) -> tidied_pca2
+```
+
+Now we have scores for every single chord on every single dimension. 
+
+Want to know if our PCA was helpful at all first. 
+
+* First PC explains ~25% of variation
+* Next two are also formidable
+
+```{r}
+# Extract PCA Variance 
+sdev <- pca_prep$steps[[2]]$res$sdev
+percent_variation <- sdev^2 / sum(sdev^2)
+sum(percent_variation[1:3])
+sum(percent_variation[1])
+sum(percent_variation[2])
+sum(percent_variation[3])
+tibble(
+  component = unique(tidied_pca$component),
+  percent_var = percent_variation ## use cumsum() to find cumulative, if you prefer
+) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(component, percent_var)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = NULL, y = "Percent Variance",
+       title = "Cumulative Variance Explained") +
+  theme_minimal() +
+  coord_flip() -> var_explained_plot
+var_explained_plot
+ggsave(filename = "img/Figures/Figure_Variation_Explained.png", 
+       height = 6, width = 9, dpi = 300, plot = var_explained_plot)
+```
+
+Next we plot the first five principle components with all items.
+
+Main take aways from plot
+
+* PC1 appears to be just general attraction rating
+* All scores positive reflect the fact that all asked to do same task
+* Going to look at each in depth after
+
+```{r}
+# PLOTS HERE NOT IN MANUSCRIPT 
+# EXCLUDE 
+tidied_pca2 %>%
+  filter(component %in% paste0("PC", 1:5)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(value, terms, fill = chord_family)) +
+  geom_col() +
+  facet_wrap(~component, nrow = 1) +
+  labs(y = "Chord", x = "Loading", title = "First Five Principal Components") -> pc15
+pc15
+ggsave(filename = "img/Figures/Figure_PC1to5.png", height = 6, width = 9, dpi = 300, plot = pc15)
+```
+
+* PC1 is Pre Dominant Attraction  
+
+```{r}
+tidied_pca2 %>%
+  filter(component %in% paste0("PC", 1)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  mutate(value = round(value, 3)) %>%
+  mutate(chord_family = str_replace_all(chord_family, "_"," ")) %>%
+  mutate(chord_family = str_to_title(chord_family)) %>%
+  mutate(chord_family = str_replace_all(chord_family,"Pd","PDs")) %>%
+  mutate(chord_family = str_replace_all(chord_family,"Not","Non")) %>%
+  mutate(chord_family = str_replace_all(chord_family,"Common","Diatonic")) %>%
+  mutate(chord_family = factor(chord_family, levels = c("Chromatic PDs","Diatonic PDs","Bridge Chords", "Non PDs"))) %>%
+  ggplot(aes(x = value, y = reorder(terms, abs(value)))) +
+  geom_point(aes(color = chord_family), size = 3) + # swapped from shape 
+  theme_minimal() +
+  scale_color_viridis(option = "D", discrete = TRUE) +
+  theme(legend.position="bottom") +
+  labs(y = "Chord", x = "Loading",
+       title = "Response Strategy: Experimental Prompt", shape = "Chord Category",
+       color = "Chord Category") -> pc1
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
+pc1
+ggsave(filename = "img/Figures/PC1.png", 
+       height = 9, width = 5, dpi = 300, plot = pc1)
+```
+
+* PC2 is sensitivy to training, more evident through next chart
+
+```{r}
+tidied_pca2 %>%
+  filter(component %in% paste0("PC", 2)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(x = value, y = reorder(terms, abs(value)), fill = chord_family)) +
+  geom_col() +
+  theme_minimal() +
+  scale_fill_manual(labels = c("Bridge Chords","Chromatic PDs","Common PDs","Non PDs"),
+                    values = c("green","black","blue","red")) +
+  labs(y = "Chord", title = "PC2: Sensitivity to Training", fill = "Chord Family") -> pc2
+pc2
+ggsave(filename = "img/Figures/PC2.png", height = 6, width = 9, dpi = 300, plot = pc2)
+```
+
+Here we use loadings on each rating, plot PC1 vs PC2
+
+```{r}
+# PANEL 2 
+juice(pca_prep) %>%
+  mutate(group = str_replace_all(group, "upperclass","Juniors/Seniors")) %>%
+  mutate(group = str_replace_all(group, "freshman","freshmen")) %>%
+  mutate(group = str_to_title(group)) %>%
+  mutate(`Experimental Group` = str_to_title(group)) %>%
+  mutate(`Experimental Group` = factor(`Experimental Group`, levels = c("Juniors/Seniors","Freshmen","Prolific"))) %>%
+  ggplot(aes(PC1, PC2, 
+            # shape = `Experimental Group`,
+             color = `Experimental Group`)) +
+  geom_point(alpha = 1) +
+  scale_shape_manual(values=c( 8, 13, 4))+
+  scale_color_viridis(discrete = TRUE, option = "A", begin = .5, end = .9, direction = -1) +
+  theme_minimal() +
+  theme(legend.position="bottom") +
+  labs(title = "Scores of Items from PCA Loadings",
+       x = "PC1: Predominant Attraction",
+       y = "PC2: Sensitivity to Music Theory Training",
+       shape = "Participant Group") -> pc1vpc2
+pc1vpc2
+ggsave(filename = "img/Figures/PC1vsPC2.png", height = 6, width = 9, dpi = 300, plot = pc1vpc2)
+```
+
+#### Panel 3 for Manuscript
+
+```{r}
+# Make Panel
+library(patchwork)
+(pc1 + (pc1vpc2)) + plot_annotation(tag_levels = "A") -> pca_panel
+library(cowplot)
+cowplot::plot_grid(pc1, pc1vpc2,labels = "AUTO", label_size = 24) -> pca_panel_2
+ggsave(plot = pca_panel, filename = "img/Figures/Figure3.png", height = 9, width = 12, dpi = 300)
+ggsave(plot = pca_panel_2, filename = "img/Figures/Figure3cow.png", height = 9, width = 12, dpi = 300)
+
+ggsave(plot = pca_panel, filename = "img/Figures/Figure3.tiff", height = 9, width = 12, dpi = 300)
+ggsave(plot = pca_panel_2, filename = "img/Figures/Figure3cow.tiff", height = 9, width = 12, dpi = 300)
+
+ggsave(plot = pca_panel, filename = "img/Figures/Figure3.eps", height = 9, width = 12, dpi = 300)
+ggsave(plot = pca_panel_2, filename = "img/Figures/Figure3cow.eps", height = 9, width = 12, dpi = 300)
+```
+
+
+```{r}
+# Old Exploratory Plots, Not in Manuscript 
+juice(pca_prep) %>%
+  ggplot(aes(PC1, PC3, color = group)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs() -> pc1vpc3
+ggsave(filename = "img/unsupervised/pc1vpc3.png", height = 6, width = 9, dpi = 300, plot = pc1vpc3)
+juice(pca_prep) %>%
+  ggplot(aes(PC2, PC3, color = group)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs() -> pc2vpc3
+ggsave(filename = "img/unsupervised/pc2vpc3.png", height = 6, width = 9, dpi = 300, plot = pc2vpc3)
+```
+
+More Exploration, not included 
+
+```{r}
+# Correlation with general average 
+# tidied_pca2 %>%
+#   filter(component == "PC1") %>%
+#   dplyr::select(terms, value) %>%
+#   rename(chord = terms) -> pca_terms
+# 
+# 
+# feature_model_data %>%
+#   dplyr::select(mean_chord_ratings, chord) %>%
+#   left_join(pca_terms)-> cor_pca
+# 
+# cor_pca %>%
+#   ggplot(aes(x = value, y = mean_chord_ratings, label = chord)) +
+#   geom_point() +
+#   geom_text(nudge_y = .1) +
+#   geom_smooth()
+# 
+# cor.test(cor_pca$mean_chord_ratings, cor_pca$value)
+```
+
+### HCA 
+
+```{r}
+chord_stimuli_data <- read_csv("tidy_tables/chord_experiment_stimuli_data.csv")
+chord_stimuli_data <- chord_stimuli_data %>% 
+  rename(chord = chord_symbol,
+         chord_family = group) 
+# Chord Features
+chord_features <- read_csv("tidy_tables/chord_features.csv")
+chord_features <- janitor::clean_names(chord_features)
+chord_features <- chord_features %>%
+  separate(col = stimuli, into = c("chord_id","temp"), "\\.") %>%
+  separate(col = temp, into = c("chord","notes"), sep = "\\:") %>%
+  mutate(chord = str_trim(chord)) %>%
+  mutate(notes = str_trim(notes))
+chord_features %>%
+  select(parncut_roughness:number_4_b6) -> cluster_features
+rownames(cluster_features) <- chord_features$chord
+cluster_features %>% scale() -> scaled_cluster_features
+dist_cluster <- dist(scaled_cluster_features)
+dist_cluster_object <- hclust(dist_cluster, method = "complete")
+par(mfrow=c(1,1))
+jpeg("img/Figures/Figure4.jpeg", height = 500, width = 900)
+plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
+dev.off()
+plot(dist_cluster_object , xlab="", sub="", cex=1.5, main = "HCA of Chord Features")
+# ADD COLOR =====================================================================
+#install.packages("dendextend")
+library(dendextend)
+# dont judge me for doing this manually 
+#scale_color_manual(values = c("#55C667FF","#440154FF","#39568CFF","#FDE725FF"))
+# chromatic - purple
+# diantoinc - blue
+# bridge -green 
+# nonpd - yellow 
+chord_stimuli_data %>%
+  select(chord, chord_family) %>% 
+  print(n = 100)
+#jpeg("img/Figures/Figure4_color.jpeg", height = 400, width = 800)
+
+#tiff("img/Figures/Figure4_color.tiff", height = 400, width = 800)
+par(mar=c(1,1,1,1))
+tiff("img/Figures/Figure4_color_rescale.tiff", width = 10, height = 6, units = 'in', res = 300)
+
+
+dist_cluster_object %>%
+  as.dendrogram %>%
+  set("labels_col", c(
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#39568CFF",  # Blue
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#440154FF",  # Purple
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#FDE725FF",  # #55C667FF --> #FDE725FF
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#440154FF",  # Purple (N6)
+    "#FDE725FF",  # #55C667FF (vii07)--> #FDE725FF
+    "#39568CFF",  # Blue
+    "#39568CFF",  # Blue
+    "#FDE725FF",  # #55C667FF (i7)--> #FDE725FF
+    "#55C667FF",  # --  > #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#FDE725FF",  # #55C667FF (I7)--> #FDE725FF
+    "#FDE725FF",  # #55C667FF --> #FDE725FF
+    "#FDE725FF",  # #55C667FF --> #FDE725FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF",  # --> #55C667FF
+    "#55C667FF"   # --> #55C667FF
+    
+    )) %>%
+  set("labels_cex", 1.5) %>%
+  plot(main = "HCA Chord Features") 
+legend("topright", 
+     legend = c("Chromatic PDs" , "Diantonic PDs" , "Bridge Chords" , "Non PDs"), 
+     col = c(
+           "#440154FF",  # Purple
+              "#39568CFF",  # Blue
+            "#55C667FF",
+    "#FDE725FF" ), # Yellow
+     pch = c(20), bty = "n", cex = 1.5 , 
+     text.col = "black", horiz = FALSE, inset = c(0, 0))
+dev.off()
+#=================================================================================
+# Linage does not seem to affect too much in terms of general categories 
+dist_cluster_object_complete <- hclust(dist_cluster,method = "complete")
+dist_cluster_object_average <- hclust(dist_cluster,method = "average")
+dist_cluster_object_single <- hclust(dist_cluster, method = "single")
+par(mfrow=c(1,3))
+plot(dist_cluster_object_complete ,main="Complete Linkage", xlab="", sub="",
+cex=.9)
+plot(dist_cluster_object_average , main="Average Linkage", xlab="", sub="",
+cex=.9)
+plot(dist_cluster_object_single, main="Single Linkage", xlab="", sub="",
+cex=.9)
+```

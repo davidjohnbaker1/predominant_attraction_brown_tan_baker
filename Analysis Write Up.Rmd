@@ -1,17 +1,19 @@
 ---
 title: "Statistical Analyses"
 author: "David John Baker"
-date: "21/09/2020"
+date: "19/03/2021"
 output: html_document
 editor_options: 
   chunk_output_type: console
 ---
 
-This markdown contains the analysis for "The Attraction of Predominant Chords".
+This markdown contains the analysis for "The Perceptual Attraction of Predominant Chords".
 It attempts to more clearly link the theoretical introduction to the statistical modeling to the discussion.
 
 The document is meant to serve as a reference to be pasted into the manuscript.
 All code to create tables, charts, and statistical analyses are found here.
+
+> This was last updated on March, 19th 2021 after a second R&R
 
 ## Hypotheses and Analyses 
 
@@ -216,9 +218,8 @@ means_a %>%
   xmax = c("Chromatic PDs","Diatonic PDs","Chromatic PDs","Diatonic PDs"),
    y.position = c(7, 6, 9 , 8),
    label = c("***"),
-   tip.length = 0.1, 
-  ) +
-  theme_minimal() -> analysis_a_plot_1
+   tip.length = 0.1) + 
+  theme_minimal()  -> analysis_a_plot_1
 
 analysis_a_plot_1
 
@@ -307,8 +308,17 @@ rm_musical_plot$data$group_col <- rm_musical_plot$data$group_col %>% str_replace
 # bridge -green 
 # nonpd - yellow 
 
-rm_musical_plot <- rm_musical_plot + 
-  scale_color_manual(values = c("#55C667FF","#440154FF","#39568CFF","#FDE725FF"))
+rm_musical_plot <- rm_musical_plot +  
+  scale_color_manual(
+    limits = c("Chromatic PDs", "Diatonic PDs","Bridge Chords", "Non PDs"),
+    labels = c("Chromatic PDs", "Diatonic PDs","Bridge Chords", "Non PDs"),
+    values = c(
+      "#440154FF",
+      "#39568CFF",
+      "#55C667FF",
+      "#FDE725FF"
+      )
+  ) 
 
 ##############################################################################
 # Musical Training Sub Score
@@ -730,8 +740,12 @@ library(dendextend)
 # bridge -green 
 # nonpd - yellow 
 
+helper <- data.frame(color = c("yellow","green","blue","purple"),
+            chord_family = c("not_pd","bridge_chords","common_pd","chromatic_pd") )
+
 chord_stimuli_data %>%
-  select(chord, chord_family) %>% 
+  select(chord, chord_family) %>%
+  left_join(helper) %>%
   print(n = 100)
 
 jpeg("img/Figures/Figure4_color.jpeg", height = 400, width = 800)
@@ -743,29 +757,31 @@ dist_cluster_object %>%
     "#440154FF",  # Purple
     "#440154FF",  # Purple
     "#440154FF",  # Purple
-    "#440154FF",  # Purple
-    "#39568CFF",  # Blue
-    "#440154FF",  # Purple
-    "#440154FF",  # Purple
-    "#440154FF",  # Purple
-    "#39568CFF",  # Blue
-    "#39568CFF",  # Blue
-    "#55C667FF",  # #55C667FF 
+    "#440154FF",  # Purple (Viio/V)
+    "#39568CFF",  # Blue (iv7)
+    "#440154FF",  # Purple (viio7/V)
+    "#440154FF",  # Purple V/V
+    "#440154FF",  # Purple V7/V
+    "#39568CFF",  # Blue IV
+    "#39568CFF",  # Blue IV7
+    
+    "#FDE725FF",  # vii full dim 7
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
     "#440154FF",  # Purple (N6)
-    "#55C667FF",  # #55C667FF (vii07)
+    
+    "#FDE725FF",  # yellow (vii07)
     "#39568CFF",  # Blue
     "#39568CFF",  # Blue
-    "#55C667FF",  # #55C667FF (i7)
-    "#FDE725FF",
-    "#FDE725FF",
-    "#FDE725FF",
-    "#FDE725FF",
-    "#FDE725FF",
-    "#FDE725FF",
-    "#55C667FF",  # #55C667FF (I7)
+    "#FDE725FF",  # #55C667FF (i7)
+    "#55C667FF",  # III7
+    "#55C667FF",  # VI7 
+    "#55C667FF",  # III
+    "#55C667FF",  # VI
+    "#55C667FF",  # 
+    "#55C667FF",
+    "#FDE725FF",  # #55C667FF (I7)
     "#55C667FF",  # #55C667FF 
     "#55C667FF",  # #55C667FF 
     "#FDE725FF",
@@ -777,12 +793,13 @@ dist_cluster_object %>%
   plot(main = "HCA Chord Features") 
 
 legend("topright", 
-     legend = c("Chromatic PDs" , "Common PDs" , "Bridge Chords" , "Non PDs"), 
+     legend = c("Chromatic PDs" , "Diatonic PDs" , "Bridge Chords" , "Non PDs"), 
      col = c(
            "#440154FF",  # Purple
               "#39568CFF",  # Blue
-    "#FDE725FF",  # Yellow 
-    "#55C667FF"),
+    "#55C667FF",
+    "#FDE725FF"  # Yellow 
+    ),
      pch = c(20), bty = "n", cex = 1.5 , 
      text.col = "black", horiz = FALSE, inset = c(0, 0))
 
